@@ -446,7 +446,7 @@
         const TARGET_SQUATS = 30;
         
         // 스쿼트 카운팅 상태 머신
-        let squatState = 'none'; // 'none', 'sq1_high', 'sq2_down', 'sq1_complete'
+        let squatState = 'none'; // 'none', 'sq1_high', 'sq2_down', 'sq1_complete', 'invalid'
         let sq1Count = 0;
         let sq2Count = 0;
         
@@ -576,6 +576,8 @@
                 // 클래스별 확률 저장
                 let sq1Prob = 0;
                 let sq2Prob = 0;
+                let maxProb = 0;
+                let maxClassName = "";
 
                 // 예측 결과 표시
                 for (let i = 0; i < maxPredictions; i++) {
@@ -594,6 +596,12 @@
                         labelEl.textContent = className;
                     }
 
+                    // 최대 확률 클래스 찾기
+                    if (probability > maxProb) {
+                        maxProb = probability;
+                        maxClassName = className;
+                    }
+
                     // sq1과 sq2 확률 추출
                     if (className.toLowerCase().includes("sq1") || className === "Class 1") {
                         sq1Prob = probability;
@@ -603,7 +611,8 @@
                 }
 
                 // 스쿼트 카운팅 로직 (상태 머신)
-                detectSquatWithStateMachine(sq1Prob, sq2Prob);
+                // 중요: 최대 확률 클래스가 sq1 또는 sq2이고, 90% 이상일 때만 카운트
+                detectSquatWithStateMachine(sq1Prob, sq2Prob, maxClassName, maxProb);
 
                 // 포즈 그리기
                 drawPose(pose);
@@ -612,14 +621,28 @@
             }
         }
 
-        function detectSquatWithStateMachine(sq1Prob, sq2Prob) {
-            // sq1이 90% 이상
-            if (sq1Prob >= CONFIDENCE_THRESHOLD) {
-                if (squatState === 'none' || squatState === 'sq1_complete') {
+        function detectSquatWithStateMachine(sq1Prob, sq2Prob, maxClassName, maxProb) {
+            // 중요: 최대 확률 클래스가 sq1 또는 sq2가 아니면 무시
+            const isSq1Class = maxClassName.toLowerCase().includes("sq1") || maxClassName === "Class 1";
+            const isSq2Class = maxClassName.toLowerCase().includes("sq2") || maxClassName === "Class 2";
+            
+            // sq1도 sq2도 아닌 동작이면 상태 초기화하고 경고
+            if (!isSq1Class && !isSq2Class) {
+                if (squatState !== 'invalid') {
+                    console.log("⚠️ 잘못된 자세 감지:", maxClassName, "확률:", (maxProb * 100).toFixed(1) + "%");
+                    updateStatus("⚠️ 올바른 자세를 취해주세요", "#ff6b6b");
+                    squatState = 'invalid';
+                }
+                return; // 카운팅 중단
+            }
+            
+            // sq1이 90% 이상이고, 실제로 최대 확률 클래스가 sq1일 때
+            if (sq1Prob >= CONFIDENCE_THRESHOLD && isSq1Class) {
+                if (squatState === 'none' || squatState === 'sq1_complete' || squatState === 'invalid') {
                     // 처음 시작 또는 완료 후 다시 시작
                     squatState = 'sq1_high';
                     updateStatus("준비 자세 ⬆️", "#667eea");
-                    console.log("상태: sq1_high (준비 자세)");
+                    console.log("상태: sq1_high (준비 자세) - 확률:", (sq1Prob * 100).toFixed(1) + "%");
                 } else if (squatState === 'sq2_down') {
                     // sq2에서 sq1으로 올라옴 = 1회 완료!
                     squatState = 'sq1_complete';
@@ -629,7 +652,7 @@
                     
                     // 성공 피드백
                     updateStatus("완료! ✅ 좋아요! 👍", "#00f2fe");
-                    console.log("🎉 스쿼트 1회 완료! 총:", squatCount);
+                    console.log("🎉 스쿼트 1회 완료! 총:", squatCount, "- sq1 확률:", (sq1Prob * 100).toFixed(1) + "%");
                     
                     // 카운트 애니메이션
                     const countEl = document.getElementById("squat-count");
@@ -649,13 +672,13 @@
                     }
                 }
             }
-            // sq2가 90% 이상
-            else if (sq2Prob >= CONFIDENCE_THRESHOLD) {
+            // sq2가 90% 이상이고, 실제로 최대 확률 클래스가 sq2일 때
+            else if (sq2Prob >= CONFIDENCE_THRESHOLD && isSq2Class) {
                 if (squatState === 'sq1_high') {
                     // sq1에서 sq2로 내려감
                     squatState = 'sq2_down';
                     updateStatus("스쿼트 중 ⬇️ 올라오세요!", "#f5576c");
-                    console.log("상태: sq2_down (스쿼트 자세)");
+                    console.log("상태: sq2_down (스쿼트 자세) - 확률:", (sq2Prob * 100).toFixed(1) + "%");
                 }
             }
         }
